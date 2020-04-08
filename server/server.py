@@ -7,40 +7,61 @@ import random
 import string
 import time
 import secret
+import queue
 
 HOST = secret.HOST 
 PORT = secret.PORT
 
-def socket_action(conn, addr):
 
-    for i in range(0, 15):
+def socket_action2(conn, addr, q, queues):
 
-        data = ''
+    while True:
+        data = q.get()
+        try:
+            conn.send(data.encode('utf-8'))
+        except ConnectionResetError as cre:
+            conn.close()
+            queues.remove(q) # This is unsafe
+            exit() # Kill this thread quietly
 
-        for i in range(20):
-            data += random.choice(string.ascii_letters)
-       
-        print(f"Sending {data} to {addr}")
- 
-        data += '\n'            
-        conn.send(data.encode('utf-8'));
 
-        time.sleep(3)
+def printing_thread(queues):
 
-    conn.close()
-    print(f"Closed connection to addr {addr}")
+    for data in sys.stdin:
+
+        print(data, end='')    
+        for q in queues:
+            q.put(data) 
+        # time.sleep(3)
+
 
 def main():
 
+    queues = []
+
+    print_thread = threading.Thread(target=printing_thread, args=(queues,), daemon=True)
+    print_thread.start()
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind((HOST, PORT))
+
+    try:
+        sock.bind((HOST, PORT))
+    except OSError:
+        exit("Socket is busy, try again in a few seconds")        
+
     sock.listen(5)
 
     while True:
         conn, addr = sock.accept()
-        print(f"Accepted connection from addr {addr}")
-        thread = threading.Thread(target=socket_action, args=(conn, addr,))
+        # print(f"Accepted connection from addr {addr}")
+
+        q = queue.Queue()
+
+        queues.append(q)
+
+        thread = threading.Thread(target=socket_action2, args=(conn, addr, q, queues), daemon=True)
         thread.start()
+
 
 if __name__ == "__main__":
 
@@ -48,4 +69,3 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         exit("\nServer script ending")
-
